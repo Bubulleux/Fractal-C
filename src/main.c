@@ -49,6 +49,7 @@ fractalPoint* getFractalSuite(double x, double y, int size, int maxEstrangement,
             continue;
 
         double distWithLast = fabs(getDist(xn, yn, points[i - 1][0], points[i - 1][1]));
+        //printf("%f; ", distWithLast);
         if (distWithLast > lastEstrangement) {
             estrangementCount += 1;
             lastEstrangement = distWithLast;
@@ -57,21 +58,22 @@ fractalPoint* getFractalSuite(double x, double y, int size, int maxEstrangement,
             estrangementCount = 0;
             estrangementReset += 1;
             lastEstrangement = 0;
+            //printf("r; ");
         }
 
-        if ((maxEstrangement != -1 && estrangementCount > maxEstrangement) || distWithLast > 50) {
-            fpoint->state = 1;
+        if ((maxEstrangement != -1 && estrangementCount > maxEstrangement) || isinf(distWithLast) || isnan(distWithLast)) {
+            fpoint->result = pow(i  / (double)size, 2);
             return fpoint;
         }
 
         if (maxEstrangementReset != -1 && estrangementReset > maxEstrangementReset) {
-            fpoint->state = 0;
+            fpoint->result = -1;
             return fpoint;
         }
 
         
     }
-    
+    fpoint->result = -1; 
     return fpoint;
 }
 
@@ -121,27 +123,35 @@ void drawFractal(Display *display, Window window, int screen, GC gc, double posX
     
     
     char *data = malloc(width * height * 4);
-    XImage *image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen), ZPixmap, 0, data, width, height, 32, 0);
+    int color = 0;
     for (int x = 0; x < width; x ++) {
         for (int y = 0; y < height; y++) {
-
-            fractalPoint *fPoint = getFractalSuite(remap(x, 0, width, left, right), remap(y, 0, height, bottom, top), fancy ? 500 : 50 , fancy ? 300 : 20, fancy ? 100: 20);
-            if (fPoint->state == 0) {
-                XPutPixel(image, x, y, 0x0);
+            color = 0;
+            fractalPoint *fPoint = getFractalSuite(remap(x, 0, width, left, right), remap(y, 0, height, bottom, top), fancy ? 100 : 50 , fancy ? 30 : 7, fancy ? 200 : 10);
+            
+            if (fPoint->result != -1){
+                color = (int)(fPoint->result * 255.0) << 16;
+                color |= 0xff;
+                /*
+                if (x == width / 2 && y == height / 2){
+                    printf("color: %x\nresult: %f %f\n", color, fPoint->result, fPoint->result * 255.0);
+                }
+                */
+                //XPutPixel(image, x, y, color);
             }
-            else {
-                XPutPixel(image, x, y, 0xFFFFFF);
-            }
+            ((int*)data)[y * width + x] = color;
             freeFractalPoint(fPoint);
         }
     }
-   
-    XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
 
+
+    XImage *image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen), ZPixmap, 0, data, width, height, 32, 0);
+    XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
+    
     XSetForeground(display, gc, 0x00FFFF0000);
     fractalPoint *point = getFractalSuite(posX, posY, 50, 10, 20);
     drawPointSuite(display, window, gc, point, right, left, top, bottom);
-    printf("Fractal Status %d\nFractal Alloc: %d\n", point->state, point->suiteAlloc);
+    printf("Fractal Status %f\nFractal Alloc: %d\n", point->result, point->suiteAlloc);
     freeFractalPoint(point);
     XSetForeground(display, gc, 0x00000000);
 }
@@ -156,6 +166,7 @@ int main(void) {
     int s;
     printf("Hello word\n");
     //printf("%d\n", getFractalAtPos(0, 0));
+    printf("%d\n", (int)2.2);
    
     double zoom = 0.25f;
     double posX = -0.8;
