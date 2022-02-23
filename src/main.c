@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include "main.h"
+#include <CL/cl.h>
 
 double lerp(double x, double min, double max) {
     return (min * (1 - x)) + (max * x);
@@ -146,7 +147,109 @@ void drawFractal(Display *display, Window window, int screen, GC gc, double posX
     XSetForeground(display, gc, 0x00000000);
 }
 
- 
+void compileGPUCode(){
+    
+}
+
+void drawFractalGPU(Display *display, Window window, int screen, GC gc, double posX, double posY, double zoom, Bool fancy){
+    XClearWindow(display, window);
+
+    XWindowAttributes attributes;
+    
+    XGetWindowAttributes(display, window, &attributes);
+    int width = attributes.width;
+    int height = attributes.height;
+    
+    float right = posX - zoom;
+    float left = posX + zoom;
+    float zoomY = (zoom * height) / (float)width;
+    float top = posY + zoomY;
+    float bottom = posY - zoomY;
+
+    FILE *fp;
+    char *source_str;
+    size_t source_size;
+
+    fp = fopen("main.cl", "r");
+    if (!fp) {
+        printf("Failed to load kernel");
+        exit(1);
+    }
+
+    source_str = (char*)malloc(0x100000);
+    source_size = fread( source_str, 1, 0x100000, fp);
+    fclose( fp );
+
+    // Get platform and device information
+    cl_platform_id platform_id = NULL;
+    cl_device_id device_id = NULL;
+    cl_uint ret_num_devices;
+    cl_uint ret_num_platforms;
+    cl_int ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
+    ret = clGetDeviceIDs( platform_id, CL_DEVICE_TYPE_DEFAULT, 1,
+            &device_id, &ret_num_devices);
+
+    // Create an OpenCL context
+    cl_context context = clCreateContext( NULL, 1, &device_id, NULL, NULL, &ret);
+
+    // Create a command queue
+    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
+
+    // Create a program from the kernel source
+    cl_program program = clCreateProgramWithSource(context, 1,
+            (const char **)&source_str, (const size_t *)&source_size, &ret);
+
+    // Build the program
+    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    size_t len = 0;
+    ret = clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &len);
+    char *buffer = calloc(len, sizeof(char));
+    ret = clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, len, buffer, NULL);
+    printf(buffer);
+    // Create the OpenCL kernel
+    cl_kernel kernel = clCreateKernel(program, "calc_fractal_point", &ret);
+    if (ret != 0){
+        printf("%d\n", ret);
+        exit(0);
+    }
+    
+    float pos[] = {right, top, left - right, bottom - top};
+    int screen_size[] = {width, height, 10};
+
+    cl_mem pos_obj = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * 4, pos, &ret);
+    cl_mem screen_size_obj = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int) * 3, screen_size, &ret);
+
+    cl_mem result_mem_obj = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
+             width * height * sizeof(char) * 4, NULL, &ret);
+    
+    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &pos_obj);
+    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &screen_size_obj);
+    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (char*)&result_mem_obj);
+    
+    int item_count = width * height; 
+    size_t global_item_size = item_count + 64 - (item_count % 64); // Process the entire lists
+    size_t local_item_size = 64; // Divide work items into groups of 64
+    ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL,
+            &global_item_size, &local_item_size, 0, NULL, NULL);
+    if (ret != 0){
+        printf("error  %d\n", ret);
+        exit(1);
+    }
+    char *result = (char*)malloc(sizeof(char) * width * height * 4);
+    ret = clEnqueueReadBuffer(command_queue, result_mem_obj, CL_TRUE, 0, width * height * sizeof(char) * 4, result, 0, NULL, NULL);
+
+    ret = clFlush(command_queue);
+    ret = clFinish(command_queue);
+    ret = clReleaseKernel(kernel);
+    ret = clReleaseProgram(program);
+    ret = clReleaseMemObject(result_mem_obj);
+    ret = clReleaseCommandQueue(command_queue);
+    ret = clReleaseContext(context);
+
+    XImage *image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen), ZPixmap, 0, (char*)result, width, height, 32, 0);
+    XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
+}
+
 
 int main(void) {
     Display *d;
@@ -155,6 +258,7 @@ int main(void) {
     const char *msg = "Hello, World!";
     int s;
     printf("Hello word\n");
+    printf("%d %d\n", sizeof(char), sizeof(int));
     //printf("%d\n", getFractalAtPos(0, 0));
    
     double zoom = 0.25f;
@@ -211,7 +315,7 @@ int main(void) {
                 fancy = True;
             }
 
-            drawFractal(d, w, s, DefaultGC(d, s), posX, posY, zoom, fancy);
+            drawFractalGPU(d, w, s, DefaultGC(d, s), posX, posY, zoom, fancy);
         }
 
     }

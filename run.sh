@@ -5,7 +5,7 @@ GREEN="\e[1;32m"
 NOCOLOR="\033[0m"
 
 SRC="src/"
-INCLUDE="./ -L/usr/X11R6/lib -lX11 -lm"
+INCLUDE="./ -L/usr/X11R6/lib -lX11 -lm -lOpenCL"
 
 SRC_FILE="${SRC}*.c"
 FILES=""
