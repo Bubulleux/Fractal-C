@@ -163,6 +163,7 @@ void compileGPUCode(){
 
 void drawFractalGPU(Display *display, Window window, int screen, GC gc, double posX, double posY, double zoom, Bool fancy){
     XClearWindow(display, window);
+    
 
     XWindowAttributes attributes;
     
@@ -175,6 +176,7 @@ void drawFractalGPU(Display *display, Window window, int screen, GC gc, double p
     float zoomY = (zoom * height) / (float)width;
     float top = posY + zoomY;
     float bottom = posY - zoomY;
+
 
     FILE *fp;
     char *source_str;
@@ -223,41 +225,66 @@ void drawFractalGPU(Display *display, Window window, int screen, GC gc, double p
         exit(0);
     }
     
+    float* xInput = (float*)malloc(sizeof(float) * width * height);
+    float* yInput = (float*)malloc(sizeof(float) * width * height);
+
+    for (int px = 0; px < width; px++) {
+        for (int py = 0; py < height; py++) {
+            float x = (float)remap(px, 0, width, left, right);
+            float y = (float)remap(py, 0, height, top, bottom);
+            int i = (y * width + x);
+            xInput[i] = x;
+            yInput[i] = y;
+        }
+    }
     float pos[] = {right, top, left - right, bottom - top};
     int screen_size[] = {width, height, 10};
 
-    cl_mem pos_obj = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * 4, pos, &ret);
-    cl_mem screen_size_obj = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int) * 3, screen_size, &ret);
+    cl_mem xInputs_mem = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * width * height, xInput, &ret);
+    cl_mem yInputs_mem = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * width * height, yInput, &ret);
 
     cl_mem result_mem_obj = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
-             width * height * sizeof(char) * 4, NULL, &ret);
+             width * height * sizeof(int), NULL, &ret);
     
-    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &pos_obj);
-    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &screen_size_obj);
-    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (char*)&result_mem_obj);
+    ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), &xInputs_mem);
+    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), &yInputs_mem);
+    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (int*)&result_mem_obj);
     
     int item_count = width * height; 
-    size_t global_item_size = item_count + 64 - (item_count % 64); // Process the entire lists
+    size_t global_item_size = item_count + 64 - (item_count % 64);// Process the entire lists
     size_t local_item_size = 64; // Divide work items into groups of 64
+    printf("Item %d %d %d\n%d %d\n", global_item_size, local_item_size, global_item_size / local_item_size, width, height);
+
     ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL,
             &global_item_size, &local_item_size, 0, NULL, NULL);
     if (ret != 0){
         printf("error  %d\n", ret);
         exit(1);
     }
-    char *result = (char*)malloc(sizeof(char) * width * height * 4);
-    ret = clEnqueueReadBuffer(command_queue, result_mem_obj, CL_TRUE, 0, width * height * sizeof(char) * 4, result, 0, NULL, NULL);
-
-    ret = clFlush(command_queue);
+    int *result = (int*)malloc(sizeof(int) * width * height);
+    ret = clEnqueueReadBuffer(command_queue, result_mem_obj, CL_TRUE, 0, width * height * sizeof(int), result, 0, NULL, NULL);
     ret = clFinish(command_queue);
     ret = clReleaseKernel(kernel);
-    ret = clReleaseProgram(program);
+    //ret = clReleaseProgram(program);
+    ret = clReleaseMemObject(xInputs_mem);
+    ret = clReleaseMemObject(yInputs_mem);
     ret = clReleaseMemObject(result_mem_obj);
     ret = clReleaseCommandQueue(command_queue);
     ret = clReleaseContext(context);
-
+    
+    char* data = malloc(sizeof(char) * 4 * height * width);
     XImage *image = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen), ZPixmap, 0, (char*)result, width, height, 32, 0);
+    for (int px = 0; px < width; px++) {
+        for (int py = 0; py < height; py++) {
+            int i = py * width + px;
+            XPutPixel(image, px, py, result[i] == -1 ? 0x00000000 : 0x00FFFFFF); 
+        }
+    } 
     XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
+    printf("%d\n%d\n%d\n", xInput, yInput, result);
+    //free(xInput);
+    //free(yInput);
+    free(result);
 }
 
 
@@ -272,7 +299,7 @@ int main(void) {
     //printf("%d\n", getFractalAtPos(0, 0));
     printf("%d\n", (int)2.2);
    
-    double zoom = 0.25f;
+    double zoom = 1.0f;
     double posX = -0.8;
     double posY = 0;
 

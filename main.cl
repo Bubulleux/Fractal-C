@@ -1,5 +1,8 @@
-__kernel void calc_fractal_point(__global const float* pos, __global const int* screen , __global char *result) {
+__kernel void calc_fractal_point(__global const float* xInputs, __global const float* yInputs , __global int *result) {
+    
 
+
+    /*
     float vx = pos[0];
     float vy = pos[1];
     float vWidth = pos[2];
@@ -14,32 +17,28 @@ __kernel void calc_fractal_point(__global const float* pos, __global const int* 
     char *p = result + (globalId * 4);
     int px = globalId % width;
     int py = globalId / width;
-    if (localID < 50) {
-         printf("%d_%d_%d\n", globalId, globalId * 4, get_local_id(0));
-    }
+    */
+    int globalId = get_global_id(0);
 
-    float x = px * vWidth / (float)width + vx;
-    float y = py * vHeight / (float)height + vy;
 
+    float x = xInputs[globalId];
+    float y = yInputs[globalId];
+    printf("%d: %f, %f\n",globalId, x, y);
     float xn = 0;
     float yn = 0;
-    *p ++= 0xff;
-    *p = 0x55;
-
-    if (px < 20) {
-        *p = 0xff;
+    if ((globalId % 10) < 5) {
+        result[globalId] = -1;
     }
     return;
-    for(int i = 0; i < max_iteration; i++){
+    for(int i = 0; i < 10; i++){
         float _xn = xn;
         xn = pow(xn, 2) - pow(yn, 2) + x;
         yn = 2 * _xn * yn + y;
-        if (isinf(xn) != 0 || isinf(yn) != 0 || isnan(xn) != 0 || isnan(yn) != 0 || i > 10){
-            *p = 0x00;
+        if ((xn * xn + yn * yn) > 25){
+            result[globalId] = 0;
             return;
         }
     }
-
-    *p = 0xff;
+    result[globalId] = - 1;
     return;
 }
